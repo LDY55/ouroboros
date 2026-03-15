@@ -171,6 +171,40 @@ class LLMClient:
         usage = resp_dict["usage"]
         return msg, usage
 
+    def vision_query(
+        self,
+        prompt: str,
+        images: List[Dict[str, Any]],
+        model: str = DEFAULT_MODEL,
+        max_tokens: int = 1024,
+        reasoning_effort: str = "low",
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Send a vision query to an LLM."""
+        content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for img in images:
+            if "url" in img:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img["url"]},
+                })
+            elif "base64" in img:
+                mime = img.get("mime", "image/png")
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{img['base64']}"},
+                })
+        
+        messages = [{"role": "user", "content": content}]
+        response_msg, usage = self.chat(
+            messages=messages,
+            model=model,
+            tools=None,
+            reasoning_effort=reasoning_effort,
+            max_tokens=max_tokens,
+        )
+        text = response_msg.get("content") or ""
+        return text, usage
+
     def default_model(self) -> str:
         return os.environ.get("OUROBOROS_MODEL", DEFAULT_MODEL)
 
