@@ -15,8 +15,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
-# Defaulting to Gemini as the primary engine
+# Primary engine
 DEFAULT_MODEL = "gemini/gemini-2.0-flash"
+DEFAULT_LIGHT_MODEL = DEFAULT_MODEL
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
@@ -121,7 +122,7 @@ class GeminiClient:
 class LLMClient:
     """Ouroboros Native client. Defaulting to Gemini."""
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self._gemini_client = GeminiClient()
         self._openrouter_client = None # Lazy load only if needed
 
