@@ -1,7 +1,7 @@
 """
 Ouroboros — LLM client.
 
-The only module that communicates with the LLM API (OpenRouter).
+The only module that communicates with the LLM API (OpenRouter or Native Google Gemini).
 Contract: chat(), default_model(), available_models(), add_usage().
 """
 
@@ -34,6 +34,58 @@ def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
         total[k] = int(total.get(k) or 0) + int(usage.get(k) or 0)
     if usage.get("cost"):
         total["cost"] = float(total.get("cost") or 0) + float(usage["cost"])
+
+
+class GeminiClient:
+    """Wrapper for Google Gemini API."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        self._api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
+        self._client = None
+        if self._api_key:
+            import google.generativeai as genai
+            genai.configure(api_key=self._api_key)
+
+    def _get_model(self, model_name: str):
+        import google.generativeai as genai
+        # Strip "gemini/" prefix if present
+        actual_model = model_name.replace("gemini/", "", 1)
+        return genai.GenerativeModel(actual_model)
+
+    def chat(self, messages: List[Dict[str, Any]], model: str, **kwargs) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Map generic chat messages to Gemini's format."""
+        import google.generativeai as genai
+        
+        g_model = self._get_model(model)
+        
+        # Ouroboros format -> Gemini format
+        # Gemini messages: [{'role': 'user', 'parts': [...]}]
+        gemini_messages = []
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "model"
+            content = msg["content"]
+            if isinstance(content, str):
+                parts = [content]
+            else: # Simple handle for list of parts
+                parts = [c["text"] for c in content if c.get("type") == "text"]
+            gemini_messages.append({"role": role, "parts": parts})
+            
+        chat = g_model.start_chat(history=gemini_messages[:-1])
+        resp = chat.send_message(gemini_messages[-1]["parts"])
+        
+        # Mimic OpenAI/OpenRouter structure
+        msg = {"role": "assistant", "content": resp.text}
+        
+        # Estimate usage (Gemini SDK uses 'usage_metadata')
+        meta = resp.candidates[0].usage_metadata if resp.candidates else None
+        usage = {
+            "prompt_tokens": meta.prompt_token_count if meta else 0,
+            "completion_tokens": meta.candidates_token_count if meta else 0,
+            "total_tokens": meta.total_token_count if meta else 0,
+            "cost": 0.0, # Not provided natively via API directly as price
+        }
+        
+        return msg, usage
 
 
 def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
@@ -103,7 +155,7 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
 
 
 class LLMClient:
-    """OpenRouter API wrapper. All LLM calls go through this class."""
+    """OpenRouter/Native API wrapper. All LLM calls go through this class."""
 
     def __init__(
         self,
@@ -111,8 +163,10 @@ class LLMClient:
         base_url: str = "https://openrouter.ai/api/v1",
     ):
         self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        self._gemini_key = os.environ.get("GEMINI_API_KEY", "")
         self._base_url = base_url
         self._client = None
+        self._gemini_client = None
 
     def _get_client(self):
         if self._client is None:
@@ -126,6 +180,11 @@ class LLMClient:
                 },
             )
         return self._client
+    
+    def _get_gemini_client(self):
+        if self._gemini_client is None:
+            self._gemini_client = GeminiClient(api_key=self._gemini_key)
+        return self._gemini_client
 
     def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
         """Fetch cost from OpenRouter Generation API as fallback."""
@@ -161,6 +220,11 @@ class LLMClient:
         tool_choice: str = "auto",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
+        
+        # Route to Gemini
+        if model.startswith("gemini/"):
+            return self._get_gemini_client().chat(messages, model, tools=tools, reasoning_effort=reasoning_effort)
+            
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
