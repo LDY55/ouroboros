@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import random
 from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
@@ -37,55 +38,83 @@ def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
 
 
 class GeminiClient:
-    """Wrapper for Google Gemini API."""
+    """Wrapper for Google Gemini API with key rotation."""
 
-    def __init__(self, api_key: Optional[str] = None):
-        self._api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        self._client = None
-        if self._api_key:
-            import google.generativeai as genai
-            genai.configure(api_key=self._api_key)
+    def __init__(self, keys_file: str = "state/gemini_keys.txt"):
+        self.keys_file = keys_file
+        self._keys = self._load_keys()
+        self._current_idx = random.randint(0, len(self._keys) - 1) if self._keys else 0
+
+    def _load_keys(self) -> List[str]:
+        keys = []
+        if os.path.exists(self.keys_file):
+            with open(self.keys_file, "r") as f:
+                keys = [k.strip() for k in f.read().replace(",", "\n").splitlines() if k.strip()]
+        # Fallback to env
+        env_key = os.environ.get("GEMINI_API_KEY")
+        if env_key and env_key not in keys:
+            keys.append(env_key)
+        return keys
+
+    def _rotate_key(self):
+        if not self._keys:
+            return
+        self._current_idx = (self._current_idx + 1) % len(self._keys)
+        import google.generativeai as genai
+        genai.configure(api_key=self._keys[self._current_idx])
+        log.info(f"Rotated to Gemini key index {self._current_idx}")
 
     def _get_model(self, model_name: str):
         import google.generativeai as genai
-        # Strip "gemini/" prefix if present
+        # Configure with current key
+        if self._keys:
+            genai.configure(api_key=self._keys[self._current_idx])
+        
         actual_model = model_name.replace("gemini/", "", 1)
         return genai.GenerativeModel(actual_model)
 
     def chat(self, messages: List[Dict[str, Any]], model: str, **kwargs) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Map generic chat messages to Gemini's format."""
+        """Map generic chat messages to Gemini's format with retries."""
         import google.generativeai as genai
         
-        g_model = self._get_model(model)
-        
-        # Ouroboros format -> Gemini format
-        # Gemini messages: [{'role': 'user', 'parts': [...]}]
-        gemini_messages = []
-        for msg in messages:
-            role = "user" if msg["role"] == "user" else "model"
-            content = msg["content"]
-            if isinstance(content, str):
-                parts = [content]
-            else: # Simple handle for list of parts
-                parts = [c["text"] for c in content if c.get("type") == "text"]
-            gemini_messages.append({"role": role, "parts": parts})
-            
-        chat = g_model.start_chat(history=gemini_messages[:-1])
-        resp = chat.send_message(gemini_messages[-1]["parts"])
-        
-        # Mimic OpenAI/OpenRouter structure
-        msg = {"role": "assistant", "content": resp.text}
-        
-        # Estimate usage (Gemini SDK uses 'usage_metadata')
-        meta = resp.candidates[0].usage_metadata if resp.candidates else None
-        usage = {
-            "prompt_tokens": meta.prompt_token_count if meta else 0,
-            "completion_tokens": meta.candidates_token_count if meta else 0,
-            "total_tokens": meta.total_token_count if meta else 0,
-            "cost": 0.0, # Not provided natively via API directly as price
-        }
-        
-        return msg, usage
+        retries = 3
+        while retries > 0:
+            try:
+                g_model = self._get_model(model)
+                
+                gemini_messages = []
+                for msg in messages:
+                    role = "user" if msg["role"] == "user" else "model"
+                    content = msg["content"]
+                    if isinstance(content, str):
+                        parts = [content]
+                    else:
+                        parts = [c["text"] for c in content if c.get("type") == "text"]
+                    gemini_messages.append({"role": role, "parts": parts})
+                    
+                chat = g_model.start_chat(history=gemini_messages[:-1])
+                resp = chat.send_message(gemini_messages[-1]["parts"])
+                
+                msg = {"role": "assistant", "content": resp.text}
+                meta = resp.candidates[0].usage_metadata if resp.candidates else None
+                usage = {
+                    "prompt_tokens": meta.prompt_token_count if meta else 0,
+                    "completion_tokens": meta.candidates_token_count if meta else 0,
+                    "total_tokens": meta.total_token_count if meta else 0,
+                    "cost": 0.0,
+                }
+                return msg, usage
+                
+            except Exception as e:
+                # Catch 429 and rotate
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    log.warning(f"Gemini 429, rotating key. Retries left: {retries-1}")
+                    self._rotate_key()
+                    retries -= 1
+                    time.sleep(1) # Backoff
+                else:
+                    raise e
+        raise Exception("Gemini API exhausted after retries.")
 
 
 def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
@@ -163,10 +192,9 @@ class LLMClient:
         base_url: str = "https://openrouter.ai/api/v1",
     ):
         self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
-        self._gemini_key = os.environ.get("GEMINI_API_KEY", "")
         self._base_url = base_url
         self._client = None
-        self._gemini_client = None
+        self._gemini_client = GeminiClient()
 
     def _get_client(self):
         if self._client is None:
@@ -182,8 +210,6 @@ class LLMClient:
         return self._client
     
     def _get_gemini_client(self):
-        if self._gemini_client is None:
-            self._gemini_client = GeminiClient(api_key=self._gemini_key)
         return self._gemini_client
 
     def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
