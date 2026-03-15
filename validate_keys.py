@@ -1,6 +1,5 @@
-
+import os
 import google.generativeai as genai
-import time
 
 keys = [
     "AIzaSyA2sbtl9FtGDHId9FbVWs0L6ca7V3A6hMo",
@@ -27,13 +26,15 @@ for key in keys:
     try:
         genai.configure(api_key=key)
         model = genai.GenerativeModel('gemini-1.5-flash')
-        model.generate_content("ping")
-        print(f"VALID: {key}")
+        model.generate_content("ping", request_options={"timeout": 5})
         valid_keys.append(key)
-        time.sleep(2) # Avoid rate limit
+        print(f"Valid: {key[:8]}...")
     except Exception as e:
-        print(f"INVALID: {key} - {e}")
+        print(f"Invalid: {key[:8]}... Error: {e}")
 
-print("\n--- Valid Keys ---")
-for k in valid_keys:
-    print(k)
+if not os.path.exists("state"):
+    os.makedirs("state")
+
+with open("state/gemini_keys.txt", "w") as f:
+    for k in valid_keys:
+        f.write(k + "\n")
