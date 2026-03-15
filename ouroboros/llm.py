@@ -18,6 +18,18 @@ log = logging.getLogger(__name__)
 
 # Primary engine
 DEFAULT_MODEL = "gemini/gemini-1.5-flash"
+DEFAULT_LIGHT_MODEL = DEFAULT_MODEL
+
+
+def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
+    allowed = {"none", "minimal", "low", "medium", "high", "xhigh"}
+    v = str(value or "").strip().lower()
+    return v if v in allowed else default
+
+
+def reasoning_rank(value: str) -> int:
+    order = {"none": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5}
+    return int(order.get(str(value or "").strip().lower(), 3))
 
 
 def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
@@ -142,7 +154,7 @@ class OpenRouterProvider(LLMProvider):
             "prompt_tokens": data["usage"]["prompt_tokens"],
             "completion_tokens": data["usage"]["completion_tokens"],
             "total_tokens": data["usage"]["total_tokens"],
-            "cost": 0.0, # Handled by usage metrics elsewhere if available
+            "cost": 0.0,
         }
         return msg, usage
 
@@ -150,7 +162,7 @@ class OpenRouterProvider(LLMProvider):
 class LLMClient:
     """Ouroboros Router client."""
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self._providers = {
             "gemini": GeminiClient(),
             "openrouter": OpenRouterProvider(),
@@ -173,6 +185,40 @@ class LLMClient:
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         provider = self._get_provider(model)
         return provider.chat(messages, model, tools=tools, reasoning_effort=reasoning_effort)
+
+    def vision_query(
+        self,
+        prompt: str,
+        images: List[Dict[str, Any]],
+        model: str = DEFAULT_MODEL,
+        max_tokens: int = 1024,
+        reasoning_effort: str = "low",
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Send a vision query to an LLM."""
+        content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for img in images:
+            if "url" in img:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": img["url"]},
+                })
+            elif "base64" in img:
+                mime = img.get("mime", "image/png")
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{img['base64']}"},
+                })
+        
+        messages = [{"role": "user", "content": content}]
+        response_msg, usage = self.chat(
+            messages=messages,
+            model=model,
+            tools=None,
+            reasoning_effort=reasoning_effort,
+            max_tokens=max_tokens,
+        )
+        text = response_msg.get("content") or ""
+        return text, usage
 
     def default_model(self) -> str:
         return os.environ.get("OUROBOROS_MODEL", DEFAULT_MODEL)
