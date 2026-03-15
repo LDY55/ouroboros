@@ -120,28 +120,10 @@ class GeminiClient:
 
 
 class LLMClient:
-    """Ouroboros Native client. Defaulting to Gemini."""
+    """Ouroboros Native client. Pure Gemini utilization."""
 
     def __init__(self, *args, **kwargs):
         self._gemini_client = GeminiClient()
-        self._openrouter_client = None # Lazy load only if needed
-
-    def _get_gemini_client(self):
-        return self._gemini_client
-
-    def _get_openrouter_client(self):
-        # Only load if we explicitly need an OR-only model
-        if self._openrouter_client is None:
-            from openai import OpenAI
-            self._openrouter_client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-                default_headers={
-                    "HTTP-Referer": "https://colab.research.google.com/",
-                    "X-Title": "Ouroboros",
-                },
-            )
-        return self._openrouter_client
 
     def chat(
         self,
@@ -152,24 +134,8 @@ class LLMClient:
         max_tokens: int = 16384,
         tool_choice: str = "auto",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Single LLM call. Default: Gemini."""
-        
-        # Route to Gemini primarily
-        if model.startswith("gemini/") or not model.startswith("anthropic/"):
-            return self._get_gemini_client().chat(messages, model, tools=tools, reasoning_effort=reasoning_effort)
-            
-        # Fallback to OpenRouter for specialized providers
-        client = self._get_openrouter_client()
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-        }
-        resp = client.chat.completions.create(**kwargs)
-        resp_dict = resp.model_dump()
-        msg = resp_dict["choices"][0]["message"]
-        usage = resp_dict["usage"]
-        return msg, usage
+        """Single LLM call. Pure Gemini."""
+        return self._gemini_client.chat(messages, model, tools=tools, reasoning_effort=reasoning_effort)
 
     def vision_query(
         self,
@@ -209,4 +175,4 @@ class LLMClient:
         return os.environ.get("OUROBOROS_MODEL", DEFAULT_MODEL)
 
     def available_models(self) -> List[str]:
-        return [DEFAULT_MODEL, "anthropic/claude-sonnet-4.6"]
+        return [DEFAULT_MODEL]
