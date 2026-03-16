@@ -278,6 +278,22 @@ class GeminiClient(LLMProvider):
             "cost": 0.0,
         }
 
+    @staticmethod
+    def _extract_debug_meta(response: Any) -> Dict[str, Any]:
+        candidates = getattr(response, "candidates", None) or []
+        function_calls = getattr(response, "function_calls", None) or []
+        finish_reasons = []
+        for candidate in candidates:
+            finish_reason = getattr(candidate, "finish_reason", None)
+            if finish_reason is not None:
+                finish_reasons.append(str(finish_reason))
+        return {
+            "candidate_count": len(candidates),
+            "function_call_count": len(function_calls),
+            "finish_reasons": finish_reasons,
+            "response_text_present": bool(getattr(response, "text", None)),
+        }
+
     def chat(self, messages: List[Dict[str, Any]], model: str, **kwargs) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         self._require_keys()
         try:
@@ -317,6 +333,7 @@ class GeminiClient(LLMProvider):
                     content = getattr(candidates[0], "content", None)
                     if content is not None:
                         msg["_gemini_content"] = content
+                msg["_gemini_debug"] = self._extract_debug_meta(resp)
                 usage = self._extract_usage(resp)
                 return msg, usage
             except Exception as e:

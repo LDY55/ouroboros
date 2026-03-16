@@ -900,6 +900,7 @@ def _call_llm_with_retry(
                     "model": model,
                     "raw_content": repr(content)[:500] if content else None,
                     "raw_tool_calls": repr(tool_calls)[:500] if tool_calls else None,
+                    "provider_debug": msg.get("_gemini_debug") if isinstance(msg, dict) else None,
                     "finish_reason": msg.get("finish_reason") or msg.get("stop_reason"),
                 })
 
