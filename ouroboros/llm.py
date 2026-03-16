@@ -110,44 +110,80 @@ class GeminiClient(LLMProvider):
     def _rotate_key(self) -> None:
         self._require_keys()
         self._current_idx = (self._current_idx + 1) % len(self._keys)
-        import google.generativeai as genai
-
-        genai.configure(api_key=self._keys[self._current_idx])
         log.info("Rotated to Gemini key index %s", self._current_idx)
+
+    @staticmethod
+    def _build_google_genai_contents(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        contents: List[Dict[str, Any]] = []
+        for msg in messages:
+            role = "user" if msg.get("role") == "user" else "model"
+            parts = [{"text": text} for text in GeminiClient._extract_text_parts(msg.get("content")) if text]
+            if parts:
+                contents.append({"role": role, "parts": parts})
+        return contents
+
+    @staticmethod
+    def _extract_response_text(response: Any) -> str:
+        text = getattr(response, "text", None)
+        if text:
+            return str(text)
+
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            texts = []
+            for part in parts:
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    texts.append(str(part_text))
+            if texts:
+                return "\n".join(texts).strip()
+        return ""
+
+    @staticmethod
+    def _extract_usage(response: Any) -> Dict[str, Any]:
+        usage = getattr(response, "usage_metadata", None)
+        if usage is None:
+            return {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "cost": 0.0,
+            }
+        return {
+            "prompt_tokens": int(getattr(usage, "prompt_token_count", 0) or 0),
+            "completion_tokens": int(getattr(usage, "candidates_token_count", 0) or 0),
+            "total_tokens": int(getattr(usage, "total_token_count", 0) or 0),
+            "cost": 0.0,
+        }
 
     def chat(self, messages: List[Dict[str, Any]], model: str, **kwargs) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         self._require_keys()
         try:
-            import google.generativeai as genai
+            from google import genai
         except ImportError as exc:
             raise RuntimeError(
-                "Gemini support requires google-generativeai. Install dependencies from requirements.txt."
+                "Gemini support requires google-genai. Install dependencies from requirements.txt."
             ) from exc
 
         retries = 3
         while retries > 0:
             try:
-                genai.configure(api_key=self._keys[self._current_idx])
                 actual_model = self._normalize_model_name(model)
-                g_model = genai.GenerativeModel(actual_model)
+                client = genai.Client(api_key=self._keys[self._current_idx])
+                contents = self._build_google_genai_contents(messages)
+                if not contents:
+                    raise RuntimeError("Gemini request contained no text parts.")
 
-                gemini_messages = []
-                for msg in messages:
-                    role = "user" if msg["role"] == "user" else "model"
-                    parts = self._extract_text_parts(msg.get("content"))
-                    gemini_messages.append({"role": role, "parts": parts})
+                resp = client.models.generate_content(
+                    model=actual_model,
+                    contents=contents,
+                )
 
-                chat = g_model.start_chat(history=gemini_messages[:-1])
-                resp = chat.send_message(gemini_messages[-1]["parts"])
-
-                msg = {"role": "assistant", "content": resp.text}
-                meta = resp.candidates[0].usage_metadata if resp.candidates else None
-                usage = {
-                    "prompt_tokens": meta.prompt_token_count if meta else 0,
-                    "completion_tokens": meta.candidates_token_count if meta else 0,
-                    "total_tokens": meta.total_token_count if meta else 0,
-                    "cost": 0.0,
-                }
+                text = self._extract_response_text(resp)
+                msg = {"role": "assistant", "content": text}
+                usage = self._extract_usage(resp)
                 return msg, usage
             except Exception as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):

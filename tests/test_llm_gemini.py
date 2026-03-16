@@ -43,6 +43,19 @@ class TestGeminiConfig(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 client.chat(messages=[{"role": "user", "content": "ping"}], model="gemini/gemini-1.5-flash")
 
+    def test_google_genai_contents_format(self):
+        from ouroboros.llm import GeminiClient
+
+        contents = GeminiClient._build_google_genai_contents([
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+        ])
+
+        self.assertEqual(contents[0]["role"], "model")
+        self.assertEqual(contents[0]["parts"][0]["text"], "You are helpful.")
+        self.assertEqual(contents[1]["role"], "user")
+        self.assertEqual(contents[1]["parts"][0]["text"], "Hello")
+
 
 if __name__ == "__main__":
     unittest.main()

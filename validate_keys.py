@@ -5,9 +5,9 @@ from ouroboros.llm import load_gemini_keys
 
 def main() -> int:
     try:
-        import google.generativeai as genai
+        from google import genai
     except ImportError:
-        print("google-generativeai is not installed. Run: pip install -r requirements.txt")
+        print("google-genai is not installed. Run: pip install -r requirements.txt")
         return 1
 
     keys = load_gemini_keys("state/gemini_keys.txt")
@@ -18,9 +18,8 @@ def main() -> int:
     valid_keys = []
     for key in keys:
         try:
-            genai.configure(api_key=key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            model.generate_content("ping", request_options={"timeout": 5})
+            client = genai.Client(api_key=key)
+            client.models.generate_content(model="gemini-1.5-flash", contents="ping")
             valid_keys.append(key)
             print(f"Valid: {key[:8]}...")
         except Exception as e:

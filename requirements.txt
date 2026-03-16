@@ -1,6 +1,7 @@
 
 openai>=1.0.0
 requests
+google-genai
 google-generativeai
 playwright
 playwright-stealth
