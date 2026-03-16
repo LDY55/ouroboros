@@ -57,7 +57,7 @@ Telegram --> colab_launcher.py
                 control.py          -- restart, evolve, review
                 browser.py          -- Playwright (stealth)
                 review.py           -- multi-model review
-              llm.py                -- OpenRouter client
+              llm.py                -- Gemini/OpenRouter router
               memory.py             -- scratchpad, identity, chat
               review.py             -- code metrics
               utils.py              -- utilities
@@ -78,10 +78,11 @@ Telegram --> colab_launcher.py
 
 | Key | Required | Where to get it |
 |-----|----------|-----------------|
-| `OPENROUTER_API_KEY` | Yes | [openrouter.ai/keys](https://openrouter.ai/keys) -- Create an account, add credits, generate a key |
+| `GEMINI_API_KEY` or `GEMINI_API_KEYS` | Yes | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) -- One key or multiple keys (comma/newline separated) |
 | `TELEGRAM_BOT_TOKEN` | Yes | [@BotFather](https://t.me/BotFather) on Telegram (see Step 1) |
 | `TOTAL_BUDGET` | Yes | Your spending limit in USD (e.g. `50`) |
 | `GITHUB_TOKEN` | Yes | [github.com/settings/tokens](https://github.com/settings/tokens) -- Generate a classic token with `repo` scope |
+| `OPENROUTER_API_KEY` | No | [openrouter.ai/keys](https://openrouter.ai/keys) -- Optional for OpenRouter models and budget ground truth |
 | `OPENAI_API_KEY` | No | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) -- Enables web search tool |
 | `ANTHROPIC_API_KEY` | No | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) -- Enables Claude Code CLI |
 
@@ -104,12 +105,12 @@ CFG = {
     "GITHUB_USER": "YOUR_GITHUB_USERNAME",                       # <-- CHANGE THIS
     "GITHUB_REPO": "ouroboros",                                  # <-- repo name (after fork)
     # Models
-    "OUROBOROS_MODEL": "anthropic/claude-sonnet-4.6",            # primary LLM (via OpenRouter)
+    "OUROBOROS_MODEL": "gemini/gemini-1.5-flash",                # primary LLM (via Gemini)
     "OUROBOROS_MODEL_CODE": "anthropic/claude-sonnet-4.6",       # code editing (Claude Code CLI)
-    "OUROBOROS_MODEL_LIGHT": "google/gemini-3-pro-preview",      # consciousness + lightweight tasks
+    "OUROBOROS_MODEL_LIGHT": "gemini/gemini-1.5-flash",          # consciousness + lightweight tasks
     "OUROBOROS_WEBSEARCH_MODEL": "gpt-5",                        # web search (OpenAI Responses API)
     # Fallback chain (first model != active will be used on empty response)
-    "OUROBOROS_MODEL_FALLBACK_LIST": "anthropic/claude-sonnet-4.6,google/gemini-3-pro-preview,openai/gpt-4.1",
+    "OUROBOROS_MODEL_FALLBACK_LIST": "gemini/gemini-1.5-flash,openai/gpt-4.1,anthropic/claude-sonnet-4.6",
     # Infrastructure
     "OUROBOROS_MAX_WORKERS": "5",
     "OUROBOROS_MAX_ROUNDS": "200",                               # max LLM rounds per task
@@ -179,7 +180,7 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Variable | Description |
 |----------|-------------|
-| `OPENROUTER_API_KEY` | OpenRouter API key for LLM calls |
+| `GEMINI_API_KEY` or `GEMINI_API_KEYS` | Gemini API key(s) for primary LLM calls |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot API token |
 | `TOTAL_BUDGET` | Spending limit in USD |
 | `GITHUB_TOKEN` | GitHub personal access token with `repo` scope |
@@ -188,6 +189,7 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Variable | Description |
 |----------|-------------|
+| `OPENROUTER_API_KEY` | Optional OpenRouter key for OpenRouter models and usage ground truth |
 | `OPENAI_API_KEY` | Enables the `web_search` tool |
 | `ANTHROPIC_API_KEY` | Enables Claude Code CLI for code editing |
 
@@ -197,14 +199,14 @@ Full text: [BIBLE.md](BIBLE.md)
 |----------|---------|-------------|
 | `GITHUB_USER` | *(required in config cell)* | GitHub username |
 | `GITHUB_REPO` | `ouroboros` | GitHub repository name |
-| `OUROBOROS_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model (via OpenRouter) |
+| `OUROBOROS_MODEL` | `gemini/gemini-1.5-flash` | Primary LLM model |
 | `OUROBOROS_MODEL_CODE` | `anthropic/claude-sonnet-4.6` | Model for code editing tasks |
-| `OUROBOROS_MODEL_LIGHT` | `google/gemini-3-pro-preview` | Model for lightweight tasks (dedup, compaction) |
+| `OUROBOROS_MODEL_LIGHT` | `gemini/gemini-1.5-flash` | Model for lightweight tasks (dedup, compaction) |
 | `OUROBOROS_WEBSEARCH_MODEL` | `gpt-5` | Model for web search (OpenAI Responses API) |
 | `OUROBOROS_MAX_WORKERS` | `5` | Maximum number of parallel worker processes |
 | `OUROBOROS_BG_BUDGET_PCT` | `10` | Percentage of total budget allocated to background consciousness |
 | `OUROBOROS_MAX_ROUNDS` | `200` | Maximum LLM rounds per task |
-| `OUROBOROS_MODEL_FALLBACK_LIST` | `google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
+| `OUROBOROS_MODEL_FALLBACK_LIST` | `gemini/gemini-1.5-flash,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
 
 ---
 
