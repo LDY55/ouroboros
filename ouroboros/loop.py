@@ -48,6 +48,24 @@ _pricing_fetched = False
 _cached_pricing = None
 _pricing_lock = threading.Lock()
 
+
+def _normalize_fallback_model_name(model: str) -> str:
+    """Normalize provider aliases so fallback selection compares real model identity."""
+    value = str(model or "").strip()
+    if value.startswith("google/"):
+        return "gemini/" + value[len("google/"):]
+    return value
+
+
+def _select_fallback_model(active_model: str, fallback_candidates: List[str]) -> Optional[str]:
+    """Return the first fallback candidate that is meaningfully different from active_model."""
+    active_normalized = _normalize_fallback_model_name(active_model)
+    for candidate in fallback_candidates:
+        normalized = _normalize_fallback_model_name(candidate)
+        if normalized != active_normalized:
+            return candidate
+    return None
+
 def _get_pricing() -> Dict[str, Tuple[float, float, float]]:
     """
     Lazy-load pricing. On first call, attempts to fetch from OpenRouter API.
@@ -704,15 +722,12 @@ def run_llm_loop(
                     "google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6"
                 )
                 fallback_candidates = [m.strip() for m in fallback_list_raw.split(",") if m.strip()]
-                fallback_model = None
-                for candidate in fallback_candidates:
-                    if candidate != active_model:
-                        fallback_model = candidate
-                        break
+                fallback_model = _select_fallback_model(active_model, fallback_candidates)
                 if fallback_model is None:
                     return (
                         f"⚠️ Failed to get a response from model {active_model} after {max_retries} attempts. "
-                        f"All fallback models match the active one. Try rephrasing your request."
+                        "No distinct fallback model is configured. "
+                        "Set OUROBOROS_MODEL_FALLBACK_LIST to include a different model if you want fallback."
                     ), accumulated_usage, llm_trace
 
                 # Emit progress message so user sees fallback happening
