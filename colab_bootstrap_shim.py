@@ -6,6 +6,7 @@ The shim stays tiny and only starts the runtime launcher from repository.
 
 import os
 import pathlib
+import runpy
 import subprocess
 import sys
 from typing import Optional
@@ -100,4 +101,5 @@ if not pathlib.Path("/content/drive/MyDrive").exists():
 
 launcher_path = REPO_DIR / "colab_launcher.py"
 assert launcher_path.exists(), f"Missing launcher: {launcher_path}"
-subprocess.run([sys.executable, str(launcher_path)], cwd=str(REPO_DIR), check=True)
+os.chdir(str(REPO_DIR))
+runpy.run_path(str(launcher_path), run_name="__main__")
