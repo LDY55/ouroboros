@@ -43,6 +43,40 @@ def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
         total["cost"] = float(total.get("cost") or 0) + float(usage["cost"])
 
 
+def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
+    """Best-effort pricing fetch from OpenRouter. Returns {} on error/unconfigured."""
+    api_key = str(os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not api_key:
+        return {}
+    try:
+        import requests
+
+        response = requests.get(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+        models = data.get("data") or []
+        pricing: Dict[str, Tuple[float, float, float]] = {}
+        for model in models:
+            model_id = str(model.get("id") or "").strip()
+            model_pricing = model.get("pricing") or {}
+            if not model_id or not isinstance(model_pricing, dict):
+                continue
+            try:
+                prompt = float(model_pricing.get("prompt") or 0) * 1_000_000
+                completion = float(model_pricing.get("completion") or 0) * 1_000_000
+                cached = float(model_pricing.get("cached_prompt") or model_pricing.get("prompt") or 0) * 1_000_000
+            except Exception:
+                continue
+            pricing[model_id] = (prompt, cached, completion)
+        return pricing
+    except Exception:
+        return {}
+
+
 def load_gemini_keys(keys_file: str = "state/gemini_keys.txt") -> List[str]:
     """Load Gemini API keys from env vars and/or a text file."""
     keys: List[str] = []

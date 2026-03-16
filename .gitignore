@@ -18,6 +18,7 @@ dist/
 build/
 .pytest_cache/
 .mypy_cache/
+state/
 
 # OS
 .DS_Store

@@ -148,6 +148,10 @@ class OuroborosAgent:
                 capture_output=True, text=True, timeout=10, check=True
             )
             dirty_files = [l.strip() for l in result.stdout.strip().split('\n') if l.strip()]
+            dirty_files = [
+                line for line in dirty_files
+                if not line.endswith(" state/") and not line.endswith(" state")
+            ]
             if dirty_files:
                 # Auto-rescue: commit and push
                 auto_committed = False
