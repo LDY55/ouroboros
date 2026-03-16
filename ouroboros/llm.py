@@ -12,6 +12,7 @@ import os
 import pathlib
 import random
 import time
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -115,11 +116,44 @@ class GeminiClient(LLMProvider):
     @staticmethod
     def _build_google_genai_contents(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         contents: List[Dict[str, Any]] = []
+        tool_name_by_id: Dict[str, str] = {}
         for msg in messages:
-            role = "user" if msg.get("role") == "user" else "model"
+            role = str(msg.get("role") or "")
+            if role == "system":
+                continue
+
+            if role == "tool":
+                tool_call_id = str(msg.get("tool_call_id") or "")
+                tool_name = tool_name_by_id.get(tool_call_id, "tool_result")
+                content = str(msg.get("content") or "")
+                parts = [{
+                    "function_response": {
+                        "name": tool_name,
+                        "response": {"result": content},
+                    }
+                }]
+                contents.append({"role": "user", "parts": parts})
+                continue
+
             parts = [{"text": text} for text in GeminiClient._extract_text_parts(msg.get("content")) if text]
+            for tool_call in msg.get("tool_calls") or []:
+                fn = ((tool_call or {}).get("function") or {})
+                fn_name = str(fn.get("name") or "")
+                call_id = str((tool_call or {}).get("id") or uuid.uuid4().hex)
+                tool_name_by_id[call_id] = fn_name
+                try:
+                    fn_args = fn.get("arguments") or "{}"
+                except Exception:
+                    fn_args = "{}"
+                parts.append({
+                    "function_call": {
+                        "name": fn_name,
+                        "args": fn_args if isinstance(fn_args, dict) else _safe_json_loads(fn_args),
+                    }
+                })
             if parts:
-                contents.append({"role": role, "parts": parts})
+                mapped_role = "user" if role == "user" else "model"
+                contents.append({"role": mapped_role, "parts": parts})
         return contents
 
     @staticmethod
@@ -142,6 +176,57 @@ class GeminiClient(LLMProvider):
         return ""
 
     @staticmethod
+    def _extract_tool_calls(response: Any) -> List[Dict[str, Any]]:
+        tool_calls: List[Dict[str, Any]] = []
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            for part in parts:
+                function_call = getattr(part, "function_call", None)
+                if not function_call:
+                    continue
+                call_name = str(getattr(function_call, "name", "") or "")
+                call_args = getattr(function_call, "args", {}) or {}
+                tool_calls.append({
+                    "id": f"call_{uuid.uuid4().hex[:12]}",
+                    "type": "function",
+                    "function": {
+                        "name": call_name,
+                        "arguments": _safe_json_dumps(call_args),
+                    },
+                })
+        return tool_calls
+
+    @staticmethod
+    def _extract_system_instruction(messages: List[Dict[str, Any]]) -> str:
+        chunks = []
+        for msg in messages:
+            if str(msg.get("role") or "") != "system":
+                continue
+            text_parts = GeminiClient._extract_text_parts(msg.get("content"))
+            if text_parts:
+                chunks.append("\n".join(text_parts))
+        return "\n\n".join(chunk for chunk in chunks if chunk.strip())
+
+    @staticmethod
+    def _convert_tools(tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        converted = []
+        for tool in tools or []:
+            fn = (tool or {}).get("function") or {}
+            fn_name = str(fn.get("name") or "")
+            if not fn_name:
+                continue
+            converted.append({
+                "function_declarations": [{
+                    "name": fn_name,
+                    "description": str(fn.get("description") or ""),
+                    "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+                }]
+            })
+        return converted
+
+    @staticmethod
     def _extract_usage(response: Any) -> Dict[str, Any]:
         usage = getattr(response, "usage_metadata", None)
         if usage is None:
@@ -162,6 +247,7 @@ class GeminiClient(LLMProvider):
         self._require_keys()
         try:
             from google import genai
+            from google.genai import types
         except ImportError as exc:
             raise RuntimeError(
                 "Gemini support requires google-genai. Install dependencies from requirements.txt."
@@ -175,14 +261,22 @@ class GeminiClient(LLMProvider):
                 contents = self._build_google_genai_contents(messages)
                 if not contents:
                     raise RuntimeError("Gemini request contained no text parts.")
+                config = types.GenerateContentConfig(
+                    system_instruction=self._extract_system_instruction(messages) or None,
+                    tools=self._convert_tools(kwargs.get("tools")),
+                )
 
                 resp = client.models.generate_content(
                     model=actual_model,
                     contents=contents,
+                    config=config,
                 )
 
                 text = self._extract_response_text(resp)
-                msg = {"role": "assistant", "content": text}
+                tool_calls = self._extract_tool_calls(resp)
+                msg: Dict[str, Any] = {"role": "assistant", "content": text}
+                if tool_calls:
+                    msg["tool_calls"] = tool_calls
                 usage = self._extract_usage(resp)
                 return msg, usage
             except Exception as e:
@@ -304,3 +398,22 @@ class LLMClient:
             "google/gemini-1.5-flash",
             "openrouter/gpt-oss-120b",
         ]
+
+
+def _safe_json_loads(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    try:
+        import json
+        loaded = json.loads(str(value or "{}"))
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
+def _safe_json_dumps(value: Any) -> str:
+    try:
+        import json
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return "{}"

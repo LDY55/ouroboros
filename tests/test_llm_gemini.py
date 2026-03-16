@@ -51,10 +51,56 @@ class TestGeminiConfig(unittest.TestCase):
             {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
         ])
 
-        self.assertEqual(contents[0]["role"], "model")
-        self.assertEqual(contents[0]["parts"][0]["text"], "You are helpful.")
-        self.assertEqual(contents[1]["role"], "user")
-        self.assertEqual(contents[1]["parts"][0]["text"], "Hello")
+        self.assertEqual(len(contents), 1)
+        self.assertEqual(contents[0]["role"], "user")
+        self.assertEqual(contents[0]["parts"][0]["text"], "Hello")
+
+    def test_system_messages_are_extracted_to_instruction(self):
+        from ouroboros.llm import GeminiClient
+
+        instruction = GeminiClient._extract_system_instruction([
+            {"role": "system", "content": "System A"},
+            {"role": "system", "content": "System B"},
+            {"role": "user", "content": "Hello"},
+        ])
+        self.assertIn("System A", instruction)
+        self.assertIn("System B", instruction)
+
+    def test_tool_schema_conversion(self):
+        from ouroboros.llm import GeminiClient
+
+        converted = GeminiClient._convert_tools([{
+            "type": "function",
+            "function": {
+                "name": "repo_read",
+                "description": "Read a file",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+            },
+        }])
+
+        self.assertEqual(converted[0]["function_declarations"][0]["name"], "repo_read")
+
+    def test_tool_calls_are_extracted_from_response_parts(self):
+        from types import SimpleNamespace
+        from ouroboros.llm import GeminiClient
+
+        response = SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(
+                                function_call=SimpleNamespace(name="repo_read", args={"path": "README.md"})
+                            )
+                        ]
+                    )
+                )
+            ]
+        )
+
+        tool_calls = GeminiClient._extract_tool_calls(response)
+        self.assertEqual(tool_calls[0]["function"]["name"], "repo_read")
+        self.assertIn("README.md", tool_calls[0]["function"]["arguments"])
 
 
 if __name__ == "__main__":
