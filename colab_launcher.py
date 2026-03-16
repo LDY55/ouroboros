@@ -166,6 +166,15 @@ for sub in ["state", "logs", "memory", "index", "locks", "archive"]:
     (DRIVE_ROOT / sub).mkdir(parents=True, exist_ok=True)
 REPO_DIR.mkdir(parents=True, exist_ok=True)
 
+# If Gemini keys were written into the repo checkout, export them for all child processes.
+if not str(os.environ.get("GEMINI_API_KEY") or "").strip() and not str(os.environ.get("GEMINI_API_KEYS") or "").strip():
+    repo_gemini_keys = REPO_DIR / "state" / "gemini_keys.txt"
+    if repo_gemini_keys.exists():
+        try:
+            os.environ["GEMINI_API_KEYS"] = repo_gemini_keys.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            log.warning("Failed to load Gemini keys from %s: %s", repo_gemini_keys, e)
+
 # Clear stale owner mailbox files from previous session
 try:
     from ouroboros.owner_inject import get_pending_path
