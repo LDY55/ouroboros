@@ -386,7 +386,7 @@ class GeminiClient(LLMProvider):
                     log.warning("Gemini 429, rotating key. Retries left: %s", retries - 1)
                     self._rotate_key()
                     retries -= 1
-                    time.sleep(1)
+                    time.sleep(max(2, 4 - retries))
                 else:
                     raise
         raise RuntimeError("Gemini API exhausted after retries.")

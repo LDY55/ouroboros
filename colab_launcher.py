@@ -116,7 +116,7 @@ GITHUB_USER = get_cfg("GITHUB_USER", default=None, allow_legacy_secret=True)
 GITHUB_REPO = get_cfg("GITHUB_REPO", default=None, allow_legacy_secret=True)
 assert GITHUB_USER and str(GITHUB_USER).strip(), "GITHUB_USER not set. Add it to your config cell (see README)."
 assert GITHUB_REPO and str(GITHUB_REPO).strip(), "GITHUB_REPO not set. Add it to your config cell (see README)."
-MAX_WORKERS = int(get_cfg("OUROBOROS_MAX_WORKERS", default="5", allow_legacy_secret=True) or "5")
+MAX_WORKERS = int(get_cfg("OUROBOROS_MAX_WORKERS", default="1", allow_legacy_secret=True) or "1")
 MODEL_MAIN = get_cfg("OUROBOROS_MODEL", default="gemini/gemini-1.5-flash", allow_legacy_secret=True)
 MODEL_CODE = get_cfg("OUROBOROS_MODEL_CODE", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
 MODEL_LIGHT = get_cfg("OUROBOROS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL, allow_legacy_secret=True)
@@ -288,7 +288,8 @@ append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
 # ----------------------------
 # 6.1) Auto-resume after restart
 # ----------------------------
-auto_resume_after_restart()
+if str(os.environ.get("OUROBOROS_AUTO_RESUME", "0")).strip().lower() not in {"0", "false", "off", "no"}:
+    auto_resume_after_restart()
 
 # ----------------------------
 # 6.2) Direct-mode watchdog
@@ -477,12 +478,13 @@ _last_diag_heartbeat_ts = 0.0
 _last_message_ts: float = time.time()  # Start in active mode after restart
 _ACTIVE_MODE_SEC: int = 300  # 5 min of activity = active polling mode
 
-# Auto-start background consciousness (creator's policy: always on by default)
-try:
-    _consciousness.start()
-    log.info("🧠 Background consciousness auto-started (default: always on)")
-except Exception as e:
-    log.warning("consciousness auto-start failed: %s", e)
+# Quiet default for free-tier runtimes: background consciousness starts only if explicitly enabled.
+if str(os.environ.get("OUROBOROS_BG_AUTO_START", "0")).strip().lower() not in {"0", "false", "off", "no"}:
+    try:
+        _consciousness.start()
+        log.info("🧠 Background consciousness auto-started")
+    except Exception as e:
+        log.warning("consciousness auto-start failed: %s", e)
 
 while True:
     loop_started_ts = time.time()
