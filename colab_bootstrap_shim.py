@@ -43,6 +43,11 @@ for _name in ("TELEGRAM_BOT_TOKEN", "TOTAL_BUDGET", "GITHUB_TOKEN"):
 for _name in ("GEMINI_API_KEY", "GEMINI_API_KEYS", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
     export_secret_to_env(_name, required=False)
 
+if not str(os.environ.get("GEMINI_API_KEY") or "").strip() and not str(os.environ.get("GEMINI_API_KEYS") or "").strip():
+    _repo_keys = pathlib.Path("/content/ouroboros_repo/state/gemini_keys.txt")
+    if _repo_keys.exists():
+        os.environ["GEMINI_API_KEYS"] = _repo_keys.read_text(encoding="utf-8").strip()
+
 # Colab diagnostics defaults (override in config cell if needed).
 os.environ.setdefault("OUROBOROS_WORKER_START_METHOD", "fork")
 os.environ.setdefault("OUROBOROS_DIAG_HEARTBEAT_SEC", "30")

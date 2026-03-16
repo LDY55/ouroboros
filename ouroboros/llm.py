@@ -58,9 +58,20 @@ def load_gemini_keys(keys_file: str = "state/gemini_keys.txt") -> List[str]:
     _append(os.environ.get("GEMINI_API_KEYS"))
     _append(os.environ.get("GEMINI_API_KEY"))
 
-    path = pathlib.Path(keys_file)
-    if path.exists():
-        _append(path.read_text(encoding="utf-8"))
+    candidate_paths = [
+        pathlib.Path(keys_file),
+        pathlib.Path("/content/ouroboros_repo") / keys_file,
+        pathlib.Path("/content/drive/MyDrive/Ouroboros") / keys_file,
+        pathlib.Path("/content/drive/MyDrive/Ouroboros/state/gemini_keys.txt"),
+    ]
+    seen_paths = set()
+    for path in candidate_paths:
+        normalized = str(path.resolve()) if path.is_absolute() else str(path)
+        if normalized in seen_paths:
+            continue
+        seen_paths.add(normalized)
+        if path.exists():
+            _append(path.read_text(encoding="utf-8"))
 
     return keys
 

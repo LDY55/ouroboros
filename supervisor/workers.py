@@ -277,7 +277,9 @@ def auto_resume_after_restart() -> None:
 def worker_main(wid: int, in_q: Any, out_q: Any, repo_dir: str, drive_root: str) -> None:
     import sys as _sys
     import traceback as _tb
+    import os as _os
     import pathlib as _pathlib
+    _os.chdir(repo_dir)
     _sys.path.insert(0, repo_dir)
     _drive = _pathlib.Path(drive_root)
     try:
