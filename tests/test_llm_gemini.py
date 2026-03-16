@@ -102,6 +102,20 @@ class TestGeminiConfig(unittest.TestCase):
         self.assertEqual(tool_calls[0]["function"]["name"], "repo_read")
         self.assertIn("README.md", tool_calls[0]["function"]["arguments"])
 
+    def test_tool_calls_prefer_top_level_function_calls(self):
+        from types import SimpleNamespace
+        from ouroboros.llm import GeminiClient
+
+        response = SimpleNamespace(
+            function_calls=[
+                SimpleNamespace(name="repo_list", args={"path": "."}, id="fc_1")
+            ]
+        )
+
+        tool_calls = GeminiClient._extract_tool_calls(response)
+        self.assertEqual(tool_calls[0]["id"], "fc_1")
+        self.assertEqual(tool_calls[0]["function"]["name"], "repo_list")
+
 
 if __name__ == "__main__":
     unittest.main()

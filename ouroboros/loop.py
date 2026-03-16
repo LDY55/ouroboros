@@ -47,16 +47,12 @@ _MODEL_PRICING_STATIC = {
 _pricing_fetched = False
 _cached_pricing = None
 _pricing_lock = threading.Lock()
-
-
 def _normalize_fallback_model_name(model: str) -> str:
     """Normalize provider aliases so fallback selection compares real model identity."""
     value = str(model or "").strip()
     if value.startswith("google/"):
         return "gemini/" + value[len("google/"):]
     return value
-
-
 def _select_fallback_model(active_model: str, fallback_candidates: List[str]) -> Optional[str]:
     """Return the first fallback candidate that is meaningfully different from active_model."""
     active_normalized = _normalize_fallback_model_name(active_model)
@@ -136,8 +132,6 @@ READ_ONLY_PARALLEL_TOOLS = frozenset({
 
 # Stateful browser tools require thread-affinity (Playwright sync uses greenlet)
 STATEFUL_BROWSER_TOOLS = frozenset({"browse_page", "browser_action"})
-
-
 def _truncate_tool_result(result: Any) -> str:
     """
     Hard-cap tool result string to 15000 characters.
@@ -411,6 +405,17 @@ def _handle_text_response(
     if content and content.strip():
         llm_trace["assistant_notes"].append(content.strip()[:320])
     return (content or ""), accumulated_usage, llm_trace
+def _assistant_message_for_history(msg: Dict[str, Any]) -> Dict[str, Any]:
+    """Preserve provider-specific metadata needed for multi-turn conversations."""
+    assistant_message = {
+        "role": "assistant",
+        "content": msg.get("content") or "",
+        "tool_calls": msg.get("tool_calls") or [],
+    }
+    for key, value in msg.items():
+        if key.startswith("_") and key not in assistant_message:
+            assistant_message[key] = value
+    return assistant_message
 
 
 def _check_budget_limits(
@@ -757,7 +762,7 @@ def run_llm_loop(
                 return _handle_text_response(content, llm_trace, accumulated_usage)
 
             # Process tool calls
-            messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
+            messages.append(_assistant_message_for_history(msg))
 
             if content and content.strip():
                 emit_progress(content.strip())
@@ -777,7 +782,6 @@ def run_llm_loop(
             )
             if budget_result is not None:
                 return budget_result
-
     finally:
         # Cleanup thread-sticky executor for stateful tools
         if stateful_executor:

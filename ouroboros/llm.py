@@ -122,6 +122,16 @@ class GeminiClient(LLMProvider):
             if role == "system":
                 continue
 
+            if role == "assistant" and msg.get("_gemini_content") is not None:
+                contents.append(msg["_gemini_content"])
+                for tool_call in msg.get("tool_calls") or []:
+                    fn = ((tool_call or {}).get("function") or {})
+                    fn_name = str(fn.get("name") or "")
+                    call_id = str((tool_call or {}).get("id") or "")
+                    if fn_name and call_id:
+                        tool_name_by_id[call_id] = fn_name
+                continue
+
             if role == "tool":
                 tool_call_id = str(msg.get("tool_call_id") or "")
                 tool_name = tool_name_by_id.get(tool_call_id, "tool_result")
@@ -178,6 +188,26 @@ class GeminiClient(LLMProvider):
     @staticmethod
     def _extract_tool_calls(response: Any) -> List[Dict[str, Any]]:
         tool_calls: List[Dict[str, Any]] = []
+        direct_calls = getattr(response, "function_calls", None) or []
+        for function_call in direct_calls:
+            call_name = str(getattr(function_call, "name", "") or "")
+            call_args = getattr(function_call, "args", {}) or {}
+            call_id = str(
+                getattr(function_call, "id", "")
+                or getattr(function_call, "call_id", "")
+                or f"call_{uuid.uuid4().hex[:12]}"
+            )
+            tool_calls.append({
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": call_name,
+                    "arguments": _safe_json_dumps(call_args),
+                },
+            })
+        if tool_calls:
+            return tool_calls
+
         candidates = getattr(response, "candidates", None) or []
         for candidate in candidates:
             content = getattr(candidate, "content", None)
@@ -188,8 +218,13 @@ class GeminiClient(LLMProvider):
                     continue
                 call_name = str(getattr(function_call, "name", "") or "")
                 call_args = getattr(function_call, "args", {}) or {}
+                call_id = str(
+                    getattr(function_call, "id", "")
+                    or getattr(function_call, "call_id", "")
+                    or f"call_{uuid.uuid4().hex[:12]}"
+                )
                 tool_calls.append({
-                    "id": f"call_{uuid.uuid4().hex[:12]}",
+                    "id": call_id,
                     "type": "function",
                     "function": {
                         "name": call_name,
@@ -277,6 +312,11 @@ class GeminiClient(LLMProvider):
                 msg: Dict[str, Any] = {"role": "assistant", "content": text}
                 if tool_calls:
                     msg["tool_calls"] = tool_calls
+                candidates = getattr(resp, "candidates", None) or []
+                if candidates:
+                    content = getattr(candidates[0], "content", None)
+                    if content is not None:
+                        msg["_gemini_content"] = content
                 usage = self._extract_usage(resp)
                 return msg, usage
             except Exception as e:
